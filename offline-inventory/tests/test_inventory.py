@@ -1,8 +1,19 @@
-
 # tests/test_inventory.py
 
 import pytest
 from core.inventory import Inventory, Item
+
+from core import datasheet_importer
+
+
+def test_csv_ingestion(tmp_path):
+    sample = tmp_path / "sample.csv"
+    sample.write_text("id,name\n1,Widget\n2,Gadget")
+    tables = datasheet_importer.ingest_file(sample)
+    assert len(tables) == 1
+    name, df = tables[0]
+    assert "id" in df.columns
+    assert "name" in df.columns
 
 
 @pytest.fixture
@@ -38,7 +49,6 @@ def test_total_value(sample_inventory):
 def test_item_not_found(sample_inventory):
     with pytest.raises(KeyError):
         sample_inventory.update_quantity("Keyboard", 2)
-
 
 
 """
