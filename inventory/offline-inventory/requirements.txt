@@ -1,0 +1,7 @@
+
+pandas
+sqlalchemy
+pdfplumber
+pytesseract
+Pillow
+openpyxl
