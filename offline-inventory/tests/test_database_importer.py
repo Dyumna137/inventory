@@ -1,4 +1,3 @@
-
 """
 test_database_importer.py
 =========================
@@ -8,18 +7,23 @@ Run with:
     python tests/test_database_importer.py
 """
 
-import os
-import pandas as pd
 from db.database import init_db, import_datasheet, fetch_items
+import pandas as pd
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 # Step 1: Setup a temporary test datasheet
 sample_file = "tests/sample_inventory.csv"
 
-df = pd.DataFrame({
-    "name": ["Keyboard", "Mouse", "Monitor"],
-    "quantity": [5, 10, 3],
-    "price": [1200.5, 450.0, 8000.0]
-})
+df = pd.DataFrame(
+    {
+        "name": ["Keyboard", "Mouse", "Monitor"],
+        "quantity": [5, 10, 3],
+        "price": [1200.5, 450.0, 8000.0],
+    }
+)
 
 df.to_csv(sample_file, index=False)
 print(f"[INFO] Sample datasheet created: {sample_file}")
@@ -40,7 +44,6 @@ for item in items:
 # Step 5: Cleanup test file
 os.remove(sample_file)
 print("[INFO] Test datasheet removed.")
-
 
 
 """
