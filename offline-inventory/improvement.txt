@@ -1,0 +1,5 @@
+🚀 How This is Better
+OOP (Item, Inventory) → Reusable in games.
+Separation of Concerns → DB, GUI, Logic, Config → all separate.
+Scalable → Replace Tkinter with PyQt/Kivy later without touching DB or logic.
+Future Add-ons → Searching, editing, deleting are easy to expand.
