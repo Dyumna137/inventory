@@ -1,1 +1,1 @@
-DB_NAME = "db\\inventory.db"
+DB_NAME = "inventory\\offline-inventory\\db\\inventory.db"
