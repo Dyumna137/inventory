@@ -87,28 +87,46 @@ def insert_item(name: str, quantity: int, price: float) -> None:
         conn.commit()
 
 
-def fetch_items() -> List[Tuple[str, int, float]]:
+def fetch_items() -> List[Tuple[int, str, int, float]]:
     """
     Fetch all items from the inventory table.
 
     Returns:
-        list[tuple]: A list of (name, quantity, price) tuples
+        list[tuple]: A list of (id, name, quantity, price) tuples
     """
     with connect_db() as conn:
         c = conn.cursor()
-        c.execute("SELECT name, quantity, price FROM inventory")
+        c.execute("SELECT id, name, quantity, price FROM inventory")
         return c.fetchall()
 
 
-def delete_item(name: str) -> None:
+def delete_item(item_id: int) -> None:
     """
-    Delete an item by name from the inventory.
+    Delete an item by its ID from the inventory.
 
     Args:
-        name (str): The name of the item to delete
+        item_id (int): The ID of the item to delete
     """
     with connect_db() as conn:
-        conn.execute("DELETE FROM inventory WHERE name=?", (name,))
+        conn.execute("DELETE FROM inventory WHERE id=?", (item_id,))
+        conn.commit()
+
+
+def update_item(item_id: int, name: str, quantity: int, price: float) -> None:
+    """
+    Update an existing item in the inventory.
+
+    Args:
+        item_id (int): The ID of the item to update
+        name (str): The new name of the item
+        quantity (int): The new quantity of the item
+        price (float): The new price of the item
+    """
+    with connect_db() as conn:
+        conn.execute(
+            "UPDATE inventory SET name = ?, quantity = ?, price = ? WHERE id = ?",
+            (name, quantity, price, item_id),
+        )
         conn.commit()
 
 
