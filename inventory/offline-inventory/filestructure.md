@@ -1,3 +1,4 @@
+```
 inventory_project/
 │── core/
 │   ├── inventory.py   # Defines the Inventory class, handles items
@@ -16,6 +17,7 @@ inventory_project/
 │── README.md
 │── requirements.txt
 
+```
 
 Work-flow
 ⚙️ Workflow of Modular Inventory System
