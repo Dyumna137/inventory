@@ -136,6 +136,7 @@ def on_item_select(event, name_entry, quantity_entry, price_entry):
     quantity_entry.insert(0, selected_item[2])
     price_entry.insert(0, f"{selected_item[3]:.2f}")
 
+
 def import_datasheet():
     file_path = filedialog.askopenfilename(
         title="Select Datasheet",
