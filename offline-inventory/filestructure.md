@@ -5,7 +5,7 @@ inventory_project/
 │   ├── logic.py       # Business logic (add/remove/search/update)
 │   ├── config.py      # Configuration (DB path, settings)
 │   │
-│── ui/
+│── gui/
 │   └── gui.py         # GUI code (Tkinter for now, can swap later)
 │
 │── db/

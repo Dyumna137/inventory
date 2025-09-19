@@ -1,13 +1,46 @@
-"""
-Inventory Management GUI (Tkinter)
-==================================
-This GUI allows users to manage inventory items, import datasheets, and switch between multiple databases and tables.
-- Choose a database file (.db) to work with.
-- Choose a table (inventory/datasheet) within the selected database.
-- Perform CRUD operations (Add, Update, Delete) on items in the chosen table.
-- Import datasheets as new tables into the selected database.
+# gui_documented.py
+# =================
+# Annotated copy of your Tkinter GUI for the Offline Inventory Management app.
+#
+# Purpose:
+# - Add clear, actionable comments (Sphinx-style where useful) to explain each
+#   function's responsibility, assumptions, integration points, failure modes,
+#   and UI behaviour. This file does not change program logic — only adds
+#   explanatory comments to help future-you (or other contributors).
+#
+# How to use:
+# - This is a documentation overlay. It is safe to replace your original gui.py
+#   with this file if you want commentary baked in. If you prefer keeping the
+#   original file unchanged, use this as a reference.
+#
+# Notes:
+# - All comments are prefixed with '#' and do not alter runtime behaviour.
+# - Where helpful, I call out GUI integration points for process_and_import and
+#   preview_and_analyze (from core.logic) and database interactions (db.database).
 
-Author: Dyumna137
+"""
+GUI Documentation Summary
+-------------------------
+This module implements the main Tkinter GUI for the Offline Inventory Management
+application. It provides the following responsibilities:
+
+- Database selection and table selection UI
+- CRUD operations for inventory-like tables (id, name, quantity, price)
+- Generic preview for non-inventory tables
+- Import datasheet flow (via core.datasheet_importer and db.save_dataframe)
+
+Important integration points:
+- `database.get_table_names`, `database.get_column_names`, `database.fetch_table_rows`
+  are used to query schema and rows for currently selected table.
+- `datasheet_importer.ingest_file` and `save_dataframe` are used for datasheet
+  import and persistence.
+
+Expected file location/package layout:
+- db/database.py (contains persistence helpers)
+- core/datasheet_importer.py (parsers for CSV/Excel/PDF/Image)
+
+This annotated copy keeps the original logic exactly but provides explanation for
+each function's intent, assumptions, and failure modes.
 """
 
 import tkinter as tk
@@ -17,6 +50,12 @@ from core import datasheet_importer
 from db.database import save_dataframe
 
 # --- GLOBAL STATE ---
+# Explanation:
+# - items: local cache of rows for the active table; each element should be
+#   a tuple matching the SQL SELECT * order (id, name, quantity, price) for
+#   inventory tables, or generic tuples for other tables.
+# - active_db_path: string path to currently selected sqlite database file.
+# - active_table_name: currently selected table name within active_db_path.
 items = []  # Stores current table's items in a local list
 active_db_path = None  # Path to currently selected database file
 active_table_name = None  # Name of currently selected table
@@ -24,8 +63,23 @@ active_table_name = None  # Name of currently selected table
 
 def choose_database(root, table_var, table_dropdown, listbox):
     """
-    Opens a file dialog for the user to select a database (.db) file.
-    Updates the active database path and refreshes table dropdown and item list.
+    Open file dialog to choose a database file and refresh UI state.
+
+    Side effects:
+    - sets global active_db_path and active_table_name
+    - updates window title to include db path
+    - refreshes table_dropdown values and the main listbox view
+
+    Parameters
+    ----------
+    root : tk.Tk
+        The main Tk root window (used to set title)
+    table_var : tk.StringVar
+        Bound to the table dropdown so we can set the selected value
+    table_dropdown : ttk.Combobox
+        Dropdown widget that will be updated with available tables
+    listbox : tk.Listbox
+        The main listbox used to display rows
     """
     global active_db_path, active_table_name
     db_path = filedialog.askopenfilename(
@@ -35,6 +89,7 @@ def choose_database(root, table_var, table_dropdown, listbox):
     if db_path:
         active_db_path = db_path
         root.title(f"Offline Inventory Management - {db_path}")
+        # Query table names from selected DB and populate dropdown
         tables = database.get_table_names(db_path)
         table_dropdown["values"] = tables
         if tables:
@@ -48,8 +103,10 @@ def choose_database(root, table_var, table_dropdown, listbox):
 
 def refresh_table_dropdown(table_var, table_dropdown, listbox):
     """
-    Loads the list of tables from the current database and updates the table selection dropdown.
-    Sets the active table to the first found (if any) and refreshes the item list.
+    Refresh the table dropdown values from the currently selected database.
+
+    This is useful after importing datasheets or when the database file's schema
+    may have changed. The function is a no-op if no database is currently chosen.
     """
     global active_db_path, active_table_name
     if not active_db_path:
@@ -57,6 +114,7 @@ def refresh_table_dropdown(table_var, table_dropdown, listbox):
     tables = database.get_table_names(active_db_path)
     table_dropdown["values"] = tables
     if tables:
+        # Default to first table found
         active_table_name = tables[0]
         table_var.set(active_table_name)
     else:
@@ -67,8 +125,11 @@ def refresh_table_dropdown(table_var, table_dropdown, listbox):
 
 def on_table_change(event, listbox, table_var):
     """
-    Triggered when the user selects a different table from the dropdown.
-    Sets the active table name and refreshes the item list.
+    Event handler for when the user selects a different table in the table dropdown.
+
+    Behavior:
+    - sets the global active_table_name to the new selection
+    - repopulates the listbox with rows from the selected table
     """
     global active_table_name
     active_table_name = table_var.get()
@@ -76,9 +137,17 @@ def on_table_change(event, listbox, table_var):
 
 
 # --- Modern UI Enhancements ---
+# This helper centralizes style configuration so the UI remains consistent.
+# It modifies ttk.Style theme and fonts; safe to call once on startup.
 def setup_styles():
     """
-    Sets up modern styling for the application.
+    Configure ttk styles, fonts and colors used across the application.
+
+    Notes:
+    - The function uses 'clam' theme for a clean look. Other themes may be used
+      depending on target platforms; the visual result can vary between OSes.
+    - Fonts are set to Segoe UI which is common on Windows; on other systems
+      fallback fonts will be used if Segoe UI is unavailable.
     """
     style = ttk.Style()
     style.theme_use("clam")  # A clean, modern theme
@@ -137,11 +206,19 @@ def setup_styles():
 
 
 # --- Core Application Logic ---
+# The refresh_listbox function is the primary place where table rows are
+# transformed into human-friendly strings for display in the listbox.
 def refresh_listbox(listbox):
     """
-    Clears and repopulates the listbox with all rows in the selected table.
-    If table matches inventory schema, show inventory style.
-    Otherwise, show generic preview.
+    Repopulate the main listbox with all rows of the currently selected table.
+
+    Behavior:
+    - If active table matches the inventory schema (id, name, quantity, price),
+      it shows "Name (xQuantity) - $Price" style strings.
+    - For other tables, it shows a generic CSV-like preview (first 3 columns)
+
+    This function also updates the global 'items' cache used by selection
+    handlers (on_item_select, delete_item, etc.).
     """
     global items, active_db_path, active_table_name
     listbox.delete(0, tk.END)
@@ -151,10 +228,12 @@ def refresh_listbox(listbox):
     cols = database.get_column_names(active_table_name, active_db_path)
     items = database.fetch_table_rows(active_table_name, active_db_path)
     if cols == ["id", "name", "quantity", "price"]:
+        # Inventory-style table: show friendly labels
         for item in items:
             listbox.insert(tk.END, f"{item[1]} (x{item[2]}) - ${item[3]:.2f}")
     else:
-        # Show a summary for each row (first 3 columns)
+        # Generic preview: join first 3 columns; this prevents the UI from
+        # crashing when tables have different schema
         for item in items:
             txt = ", ".join(str(val) for val in item[:3])
             listbox.insert(tk.END, txt)
@@ -162,8 +241,16 @@ def refresh_listbox(listbox):
 
 def add_item(name_entry, quantity_entry, price_entry, listbox):
     """
-    Adds a new item to the current table in the active database after validation.
-    Refreshes the listbox to show the new item.
+    Add a new item to the current table after validating the inventory schema.
+
+    Important checks:
+    - Only allowed for tables that match the exact inventory schema
+    - Ensures all fields are present and have valid types (int for quantity,
+      float for price) before calling database.insert_item
+
+    UI effects:
+    - On success, refreshes the listbox and clears input entries
+    - On failure, shows a messagebox with a helpful error message
     """
     global active_db_path, active_table_name
     cols = database.get_column_names(active_table_name, active_db_path)
@@ -188,6 +275,9 @@ def add_item(name_entry, quantity_entry, price_entry, listbox):
         refresh_listbox(listbox)
         clear_entries(name_entry, quantity_entry, price_entry)
     except Exception:
+        # Intentionally broad catch: any unexpected conversion or DB error
+        # is reported to the user as invalid input. For debugging, inspect
+        # the DB layer or enable logging to see the underlying exception.
         messagebox.showerror(
             "Error",
             "Invalid input: Quantity must be an integer and Price must be a number.",
@@ -196,8 +286,15 @@ def add_item(name_entry, quantity_entry, price_entry, listbox):
 
 def update_item(name_entry, quantity_entry, price_entry, listbox):
     """
-    Updates the selected item in the current table of the active database after validation.
-    Refreshes the listbox to show the updated item.
+    Update the currently selected item in the listbox.
+
+    Preconditions:
+    - Active table must match inventory schema
+    - An item must be selected in the listbox
+
+    Behavior:
+    - Validates inputs and calls database.update_item
+    - Refreshes the listbox and clears fields on success
     """
     global items, active_db_path, active_table_name
     cols = database.get_column_names(active_table_name, active_db_path)
@@ -240,8 +337,14 @@ def update_item(name_entry, quantity_entry, price_entry, listbox):
 
 def delete_item(listbox):
     """
-    Deletes the selected item from the current table of the active database.
-    Refreshes the listbox to remove the deleted item.
+    Delete the selected item from the active inventory table.
+
+    Safety checks:
+    - Only allowed for inventory schema tables (protects against accidental
+      deletion of non-inventory tables)
+    - Requires a listbox selection
+
+    After deletion, the listbox is refreshed to reflect current DB state.
     """
     global items, active_db_path, active_table_name
     cols = database.get_column_names(active_table_name, active_db_path)
@@ -262,7 +365,8 @@ def delete_item(listbox):
 
 def clear_entries(*entries):
     """
-    Clears all given entry widgets (used after add/update/delete or when 'Clear Entries' is clicked).
+    Clear a list of Tk Entry widgets. Useful after add/update/delete
+    operations to reset the input fields.
     """
     for entry in entries:
         entry.delete(0, tk.END)
@@ -270,7 +374,12 @@ def clear_entries(*entries):
 
 def on_item_select(event, name_entry, quantity_entry, price_entry):
     """
-    Populates entry fields with data from the selected item in the listbox for easy editing/updating.
+    Populate the entry fields with data from the selected listbox item.
+
+    Notes:
+    - Uses the global `items` list for mapping index -> DB row tuple
+    - Ensures entries are cleared before inserting to avoid cursor artifacts
+    - Guarded against empty selection (user may click blank area)
     """
     global items
     selected_item_index = event.widget.curselection()
@@ -286,9 +395,22 @@ def on_item_select(event, name_entry, quantity_entry, price_entry):
 
 def import_datasheet(table_var, table_dropdown, listbox):
     """
-    Opens a file dialog for the user to select a datasheet file (CSV, Excel, PDF, TXT, image).
-    Uses datasheet_importer to extract tables from the file and saves each as a new table in the active database.
-    Refreshes the table dropdown to include newly imported tables.
+    GUI handler for importing a datasheet file and saving parsed tables to DB.
+
+    Flow:
+    - Ensure a database is selected
+    - Ask user to choose a datasheet file
+    - Use datasheet_importer.ingest_file to parse the file into DataFrames
+    - For each parsed table, call save_dataframe to persist into the active DB
+    - Refresh the table dropdown so newly imported tables appear
+
+    Error handling:
+    - Any exception during parsing or saving is shown to the user
+
+    UX considerations (future improvements):
+    - Present a preview modal to the user showing parsed columns/rows and
+      validation warnings (use core.logic.preview_and_analyze for richer data)
+    - Allow the user to rename the table before writing to DB
     """
     global active_db_path
     if not active_db_path:
@@ -306,6 +428,8 @@ def import_datasheet(table_var, table_dropdown, listbox):
     try:
         tables = datasheet_importer.ingest_file(file_path)
         for name, df in tables:
+            # Save DataFrame into active DB. The slugify step ensures valid table
+            # names in sqlite. `save_dataframe` uses SQLAlchemy to handle types.
             save_dataframe(df, datasheet_importer.slugify(
                 name), db_path=active_db_path)
         messagebox.showinfo(
@@ -313,14 +437,28 @@ def import_datasheet(table_var, table_dropdown, listbox):
         )
         refresh_table_dropdown(table_var, table_dropdown, listbox)
     except Exception as e:
+        # Propagate a helpful error message to the user; developers can inspect
+        # the exception in logs for debugging.
         messagebox.showerror("Error", str(e))
 
 
 # --- GUI Setup ---
+# The `run_gui` function composes the whole UI. It is safe to call multiple
+# times in dev but typically called only when __main__.
 def run_gui():
     """
-    Initializes and runs the main GUI application.
-    Sets up styles, widgets, and event bindings for database, table, and inventory management.
+    Initialize and run the Tkinter GUI application.
+
+    Responsibilities:
+    - Create main window and frames
+    - Set up styling (setup_styles)
+    - Build widgets: listbox, input entries, buttons, dropdowns
+    - Wire event handlers and mainloop
+
+    Notes on structure:
+    - The GUI is split into logical sections: top frame (db/table), main listbox,
+      input frame, and button frame — this keeps layout predictable and easy to
+    modify later.
     """
     global active_db_path, active_table_name
     root = tk.Tk()
