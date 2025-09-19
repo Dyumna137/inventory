@@ -1,7 +1,15 @@
-# main.py (Entry point, optional)
-import db.database as database
-import gui.gui as gui
+"""
+main.py - application entry point
+Run from project root:
+    python main.py
+"""
+
+from core.config import DB_PATH
+from db import database
+from gui import gui
 
 if __name__ == "__main__":
-    database.init_db()
+    # Initialize DB (ensures file + default inventory table exists)
+    database.init_db(db_path=DB_PATH, table_name="inventory")
+    # Launch the GUI
     gui.run_gui()
