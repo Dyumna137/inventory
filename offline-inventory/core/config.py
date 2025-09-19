@@ -1,6 +1,6 @@
 import os
 
-POSSIBLE_DB_PATHS = ["offline-inventory/db/inventory.db", "db/inventory.db"]
+POSSIBLE_DB_PATHS = ["data/inventory.db"]
 
 
 def find_db_path():
