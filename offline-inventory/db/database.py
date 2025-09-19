@@ -177,4 +177,90 @@ def update_item(
     """
     with connect_db(db_path) as conn:
         conn.execute(
-            f"UPDATE '{table}' SET name = ?, quantity =
+            f"UPDATE '{table}' SET name = ?, quantity = ?, price = ? WHERE id = ?",
+            (name, int(quantity), float(price), item_id),
+        )
+        conn.commit()
+
+
+def get_column_names(table: str, db_path: str = DB_PATH) -> list:
+    """
+    Get the list of column names for a given table.
+
+    Args:
+        table (str): Table name
+        db_path (str): Path to database file
+
+    Returns:
+        list[str]: Column names in order
+    """
+    with connect_db(db_path) as conn:
+        c = conn.cursor()
+        c.execute(f"PRAGMA table_info('{table}')")
+        return [row[1] for row in c.fetchall()]
+
+
+def fetch_table_rows(table: str, db_path: str = DB_PATH) -> list:
+    """
+    Fetch all rows from the given table, regardless of columns.
+    Returns: List of tuples (row values).
+    """
+    with connect_db(db_path) as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT * FROM '{table}'")
+        return c.fetchall()
+
+
+# ------------------------------
+# Datasheet Handling
+# ------------------------------
+
+
+def save_dataframe(
+    df: pd.DataFrame,
+    table_name: str,
+    db_path: str = DB_PATH,
+    if_exists: str = "append",
+) -> None:
+    """
+    Save a Pandas DataFrame into the SQLite database as a specified table.
+
+    Args:
+        df (pd.DataFrame): The DataFrame containing data
+        table_name (str): Target table name
+        db_path (str): Path to SQLite DB file (default: DB_PATH)
+        if_exists (str): Behavior if table exists ("fail", "replace", "append")
+
+    Notes:
+        - Uses SQLAlchemy engine for robust dtype handling
+        - Caller is responsible for schema consistency
+    """
+    # Ensure directory exists
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(f"sqlite:///{db_path}")
+    df.to_sql(table_name, engine, if_exists=if_exists, index=False)
+
+
+def import_datasheet(
+    filepath: str, table_name: str = "inventory", db_path: str = DB_PATH
+) -> None:
+    """
+    Import a datasheet (CSV/Excel) into the database as a specified table.
+
+    Args:
+        filepath (str): Path to the datasheet file
+        table_name (str): Target table name (default: "inventory")
+        db_path (str): Path to database
+
+    Supported formats:
+        - .csv
+        - .xls / .xlsx
+    """
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    elif filepath.endswith((".xls", ".xlsx")):
+        df = pd.read_excel(filepath)
+    else:
+        raise ValueError("Unsupported file format. Use CSV or Excel.")
+
+    save_dataframe(df, table_name, db_path=db_path)
