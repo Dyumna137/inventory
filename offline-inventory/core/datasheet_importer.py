@@ -30,9 +30,21 @@ Supported formats:
 import re
 from pathlib import Path
 import pandas as pd
-import pdfplumber
-from PIL import Image
-import pytesseract
+import io
+
+# Optional heavy dependencies — guard imports so the module can be imported
+# even if the environment doesn't have PDF/OCR libs installed.
+try:
+    import pdfplumber
+except Exception:
+    pdfplumber = None
+
+try:
+    from PIL import Image
+    import pytesseract
+except Exception:
+    Image = None
+    pytesseract = None
 
 # ----------------------------------------------------------------------
 # Utility helpers
@@ -131,14 +143,14 @@ def parse_pdf(path: Path):
         - Complex layouts may not be detected properly
         - If no tables are found, consider switching to Camelot/Tabula
     """
+    if pdfplumber is None:
+        raise ImportError("pdfplumber is required to parse PDF files. Install it to enable PDF parsing.")
     tables = []
     with pdfplumber.open(path) as pdf:
         for i, page in enumerate(pdf.pages, start=1):
             for j, tbl in enumerate(page.extract_tables()):
-                df = pd.DataFrame(tbl[1:], columns=tbl[0]
-                                  )  # first row → header
-                tables.append(
-                    (f"{path.stem}_p{i}_t{j}", normalize_columns(df)))
+                df = pd.DataFrame(tbl[1:], columns=tbl[0])  # first row → header
+                tables.append((f"{path.stem}_p{i}_t{j}", normalize_columns(df)))
     return tables
 
 
@@ -156,16 +168,15 @@ def parse_image(path: Path):
     Note:
         - Accuracy depends heavily on image quality and OCR training
     """
+    if pytesseract is None or Image is None:
+        raise ImportError("Pillow and pytesseract required for image OCR parsing.")
     img = Image.open(path)
     text = pytesseract.image_to_string(img)
-    lines = [re.sub(r"\s{2,}", "\t", l.strip())
-             for l in text.splitlines() if l.strip()]
+    lines = [re.sub(r"\s{2,}", "\t", l.strip()) for l in text.splitlines() if l.strip()]
     if not lines:
         return []
     try:
-        df = pd.read_csv(
-            pd.compat.StringIO("\n".join(lines)), sep="\t", engine="python"
-        )
+        df = pd.read_csv(io.StringIO("\n".join(lines)), sep="\t", engine="python")
     except Exception:
         df = pd.DataFrame({"text": lines})
     return [(path.stem, normalize_columns(df))]

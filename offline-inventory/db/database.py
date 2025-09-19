@@ -20,36 +20,39 @@ Typical usage:
 --------------
 >>> from db.database import init_db, insert_item, fetch_items, get_table_names
 >>> init_db()
->>> insert_item("Keyboard", 5, 1200.50, "inventory", "db/inventory.db")
->>> print(fetch_items("inventory", "db/inventory.db"))
+>>> insert_item("Keyboard", 5, 1200.50, "inventory", "data/inventory.db")
+>>> print(fetch_items("inventory", "data/inventory.db"))
 [("Keyboard", 5, 1200.5)]
 """
 
 import sqlite3
 from typing import List, Tuple
-from core.config import DB_NAME
+from core.config import DB_PATH  # <- unified config constant name
 from sqlalchemy import create_engine
 import pandas as pd
+from pathlib import Path
 
 # ------------------------------
 # Generic Utilities
 # ------------------------------
 
 
-def connect_db(db_path: str = DB_NAME) -> sqlite3.Connection:
+def connect_db(db_path: str = DB_PATH) -> sqlite3.Connection:
     """
     Establish a connection to the SQLite database.
 
     Args:
-        db_path (str): Path to the database file
+        db_path (str): Path to the database file (defaults to core.config.DB_PATH)
 
     Returns:
         sqlite3.Connection: Database connection object
     """
+    # Ensure parent folder exists so sqlite can create the file
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     return sqlite3.connect(db_path)
 
 
-def init_db(db_path: str = DB_NAME, table_name: str = "inventory") -> None:
+def init_db(db_path: str = DB_PATH, table_name: str = "inventory") -> None:
     """
     Initialize the database with the required table if not already present.
 
@@ -73,7 +76,7 @@ def init_db(db_path: str = DB_NAME, table_name: str = "inventory") -> None:
         conn.commit()
 
 
-def get_table_names(db_path: str = DB_NAME) -> List[str]:
+def get_table_names(db_path: str = DB_PATH) -> List[str]:
     """
     Return a list of table names present in the database.
 
@@ -100,7 +103,7 @@ def insert_item(
     quantity: int,
     price: float,
     table: str = "inventory",
-    db_path: str = DB_NAME,
+    db_path: str = DB_PATH,
 ) -> None:
     """
     Insert a new item into the specified table.
@@ -115,13 +118,13 @@ def insert_item(
     with connect_db(db_path) as conn:
         conn.execute(
             f"INSERT INTO '{table}' (name, quantity, price) VALUES (?, ?, ?)",
-            (name, quantity, price),
+            (name, int(quantity), float(price)),
         )
         conn.commit()
 
 
 def fetch_items(
-    table: str = "inventory", db_path: str = DB_NAME
+    table: str = "inventory", db_path: str = DB_PATH
 ) -> List[Tuple[int, str, int, float]]:
     """
     Fetch all items from the specified table.
@@ -139,7 +142,7 @@ def fetch_items(
         return c.fetchall()
 
 
-def delete_item(item_id: int, table: str = "inventory", db_path: str = DB_NAME) -> None:
+def delete_item(item_id: int, table: str = "inventory", db_path: str = DB_PATH) -> None:
     """
     Delete an item by its ID from the specified table.
 
@@ -159,7 +162,7 @@ def update_item(
     quantity: int,
     price: float,
     table: str = "inventory",
-    db_path: str = DB_NAME,
+    db_path: str = DB_PATH,
 ) -> None:
     """
     Update an existing item in the specified table.
@@ -174,81 +177,4 @@ def update_item(
     """
     with connect_db(db_path) as conn:
         conn.execute(
-            f"UPDATE '{table}' SET name = ?, quantity = ?, price = ? WHERE id = ?",
-            (name, quantity, price, item_id),
-        )
-        conn.commit()
-
-
-def get_column_names(table: str, db_path: str = DB_NAME) -> list:
-    """
-    Get the list of column names for a given table.
-    """
-    with connect_db(db_path) as conn:
-        c = conn.cursor()
-        c.execute(f"PRAGMA table_info('{table}')")
-        return [row[1] for row in c.fetchall()]
-
-
-def fetch_table_rows(table: str, db_path: str = DB_NAME) -> list:
-    """
-    Fetch all rows from the given table, regardless of columns.
-    Returns: List of tuples (row values).
-    """
-    with connect_db(db_path) as conn:
-        c = conn.cursor()
-        c.execute(f"SELECT * FROM '{table}'")
-        return c.fetchall()
-
-
-# ------------------------------
-# Datasheet Handling
-# ------------------------------
-
-
-def save_dataframe(
-    df: pd.DataFrame,
-    table_name: str,
-    db_path: str = DB_NAME,
-    if_exists: str = "append",
-) -> None:
-    """
-    Save a Pandas DataFrame into the SQLite database as a specified table.
-
-    Args:
-        df (pd.DataFrame): The DataFrame containing data
-        table_name (str): Target table name
-        db_path (str): Path to SQLite DB file (default: DB_NAME)
-        if_exists (str): Behavior if table exists ("fail", "replace", "append")
-
-    Notes:
-        - Uses SQLAlchemy engine for robust dtype handling
-        - Caller is responsible for schema consistency
-    """
-    engine = create_engine(f"sqlite:///{db_path}")
-    df.to_sql(table_name, engine, if_exists=if_exists, index=False)
-
-
-def import_datasheet(
-    filepath: str, table_name: str = "inventory", db_path: str = DB_NAME
-) -> None:
-    """
-    Import a datasheet (CSV/Excel) into the database as a specified table.
-
-    Args:
-        filepath (str): Path to the datasheet file
-        table_name (str): Target table name (default: "inventory")
-        db_path (str): Path to database
-
-    Supported formats:
-        - .csv
-        - .xls / .xlsx
-    """
-    if filepath.endswith(".csv"):
-        df = pd.read_csv(filepath)
-    elif filepath.endswith((".xls", ".xlsx")):
-        df = pd.read_excel(filepath)
-    else:
-        raise ValueError("Unsupported file format. Use CSV or Excel.")
-
-    save_dataframe(df, table_name, db_path=db_path)
+            f"UPDATE '{table}' SET name = ?, quantity =
