@@ -16,7 +16,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = str(DATA_DIR / "inventory.db")
 
 # Supported extensions for file dialogs (used by GUI)
-SUPPORTED_EXTS = ("*.csv", "*.xls", "*.xlsx", "*.pdf", "*.txt", "*.png", "*.jpg", "*.jpeg")
+SUPPORTED_EXTS = ("*.csv", "*.txt")  # Basic support, Excel available if openpyxl/xlrd installed
 
 class InventoryType(Enum):
     """Different types of inventory systems."""
@@ -95,6 +95,9 @@ def set_inventory_type(inventory_type: InventoryType):
 
 def get_inventory_type() -> str:
     """Get the current inventory type as a string."""
+    # Try to load from config first
+    if not INVENTORY_TYPE or INVENTORY_TYPE == InventoryType.WAREHOUSE:
+        load_config()
     return INVENTORY_TYPE.value if INVENTORY_TYPE else "warehouse"
 
 def get_inventory_fields() -> List[Dict[str, Any]]:
@@ -138,6 +141,7 @@ def setup_inventory_type():
             if 1 <= choice <= len(types):
                 selected_type = list(InventoryType)[choice-1]
                 set_inventory_type(selected_type)
+                save_config(selected_type)
                 print(f"✅ Selected: {selected_type.value.title()} Inventory")
                 return selected_type
             else:
@@ -147,3 +151,29 @@ def setup_inventory_type():
         except KeyboardInterrupt:
             print("\nSetup cancelled.")
             return None
+
+def save_config(inventory_type: InventoryType):
+    """Save configuration to file."""
+    config_file = DATA_DIR / "config.json"
+    import json
+    config = {"inventory_type": inventory_type.value}
+    with open(config_file, 'w') as f:
+        json.dump(config, f)
+
+def load_config():
+    """Load configuration from file."""
+    config_file = DATA_DIR / "config.json"
+    if config_file.exists():
+        import json
+        try:
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                inventory_type_str = config.get("inventory_type")
+                if inventory_type_str:
+                    for inv_type in InventoryType:
+                        if inv_type.value == inventory_type_str:
+                            set_inventory_type(inv_type)
+                            return inv_type
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return None

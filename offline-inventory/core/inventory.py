@@ -23,9 +23,30 @@ class Item:
     
     def __init__(self, **kwargs):
         """Initialize item with flexible fields based on current config."""
-        self.id = str(uuid.uuid4())[:8]
-        self.created_at = datetime.now()
-        self.updated_at = datetime.now()
+        # Check if this is loading from database (has id, created_at, updated_at)
+        from_database = 'id' in kwargs and 'created_at' in kwargs
+        
+        # Use provided ID if available (for loading from database), otherwise generate new one
+        self.id = kwargs.pop('id', str(uuid.uuid4())[:8])
+        
+        # Use provided timestamps if available (for loading from database), otherwise use current time
+        created_at = kwargs.pop('created_at', None)
+        if created_at and isinstance(created_at, str):
+            try:
+                self.created_at = datetime.fromisoformat(created_at)
+            except ValueError:
+                self.created_at = datetime.now()
+        else:
+            self.created_at = created_at or datetime.now()
+            
+        updated_at = kwargs.pop('updated_at', None)
+        if updated_at and isinstance(updated_at, str):
+            try:
+                self.updated_at = datetime.fromisoformat(updated_at)
+            except ValueError:
+                self.updated_at = datetime.now()
+        else:
+            self.updated_at = updated_at or datetime.now()
         
         # Get current inventory configuration
         fields = get_inventory_fields()
@@ -40,19 +61,30 @@ class Item:
                 # Use provided value
                 value = kwargs[field_name]
                 # Convert to appropriate type if needed
-                if field_config["type"] == "number" and isinstance(value, str):
+                if field_config["type"] == "INTEGER" and isinstance(value, str):
                     value = int(value) if value.isdigit() else 0
-                elif field_config["type"] == "decimal" and not isinstance(value, Decimal):
+                elif field_config["type"] == "REAL" and not isinstance(value, Decimal):
                     value = Decimal(str(value))
                 self.data[field_name] = value
-            elif field_config["required"]:
+            elif field_config["required"] and not from_database:
                 raise ValueError(f"Required field '{field_name}' is missing")
             else:
-                # Use default value if provided
-                self.data[field_name] = field_config.get("default", None)
+                # Use default value if provided, or appropriate type default for missing required fields from database
+                if from_database and field_config["required"]:
+                    # Provide sensible defaults for missing required fields when loading from database
+                    if field_config["type"] == "INTEGER":
+                        default_value = 0
+                    elif field_config["type"] == "REAL":
+                        default_value = 0.0
+                    else:  # TEXT
+                        default_value = ""
+                    self.data[field_name] = default_value
+                else:
+                    self.data[field_name] = field_config.get("default", None)
         
-        # Validate required fields
-        self._validate()
+        # Validate required fields (skip validation if loading from database)
+        if not from_database:
+            self._validate()
     
     def __getattr__(self, name):
         """Allow accessing data fields as attributes."""
@@ -81,7 +113,7 @@ class Item:
             if field_config["required"] and (value is None or value == ""):
                 raise ValueError(f"Required field '{field_name}' cannot be empty")
             
-            if value is not None and field_config["type"] == "number" and value < 0:
+            if value is not None and field_config["type"] in ["INTEGER", "REAL"] and value < 0:
                 raise ValueError(f"Field '{field_name}' cannot be negative")
     
     def update_field(self, field_name: str, new_value: Any):
@@ -93,9 +125,9 @@ class Item:
             raise ValueError(f"Field '{field_name}' is not configured for this inventory type")
         
         # Type conversion
-        if field_config["type"] == "number" and not isinstance(new_value, (int, float)):
+        if field_config["type"] == "INTEGER" and not isinstance(new_value, (int, float)):
             new_value = int(new_value) if str(new_value).isdigit() else 0
-        elif field_config["type"] == "decimal" and not isinstance(new_value, Decimal):
+        elif field_config["type"] == "REAL" and not isinstance(new_value, Decimal):
             new_value = Decimal(str(new_value))
         
         self.data[field_name] = new_value
