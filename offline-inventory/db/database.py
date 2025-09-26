@@ -96,3 +96,18 @@ class Database:
                 conn.commit()
         except Exception as e:
             print(f"Error clearing items: {e}")
+    
+    def item_exists(self, item_id: str) -> bool:
+        """Check if an item exists in the database."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("SELECT COUNT(*) FROM items WHERE id = ?", (item_id,))
+                count = cursor.fetchone()[0]
+                return count > 0
+        except Exception as e:
+            print(f"Error checking item existence: {e}")
+            return False
+    
+    def update_item(self, item_dict: Dict[str, Any]) -> bool:
+        """Update an existing item in the database."""
+        return self.save_item(item_dict)  # save_item already handles INSERT OR REPLACE
