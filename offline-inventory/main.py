@@ -17,8 +17,13 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from core.config import setup_inventory_type, get_inventory_type
-from gui.gui import run_gui
+try:
+    from core.config import setup_inventory_type, get_inventory_type
+    from gui.gui import run_gui
+except ImportError as e:
+    print(f"❌ Import Error: {e}")
+    print("Make sure you're running from the project root directory.")
+    sys.exit(1)
 
 
 def main():
