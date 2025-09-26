@@ -195,23 +195,32 @@ def refresh_listbox(listbox):
     This function also updates the global 'items' cache used by selection
     handlers (on_item_select, delete_item, etc.).
     """
-    global items, active_db_path, active_table_name
+    global database, inventory
     listbox.delete(0, tk.END)
-    if not active_db_path or not active_table_name:
+    
+    if not database:
         return
-    # Get column names for this table
-    cols = database.get_column_names(active_table_name, active_db_path)
-    items = database.fetch_table_rows(active_table_name, active_db_path)
-    if cols == ["id", "name", "Model", "price"]:
-        # Inventory-style table: show friendly labels
-        for item in items:
-            listbox.insert(tk.END, f"{item[1]} (x{item[2]}) - ${item[3]:.2f}")
-    else:
-        # Generic preview: join first 3 columns; this prevents the UI from
-        # crashing when tables have different schema
-        for item in items:
-            txt = ", ".join(str(val) for val in item[:3])
-            listbox.insert(tk.END, txt)
+        
+    try:
+        # Get all items from the inventory
+        all_items = inventory.get_all_items()
+        fields = get_inventory_fields()
+        
+        for item in all_items:
+            # Create display string using first 3 configured fields
+            display_parts = []
+            for field in fields[:3]:
+                field_name = field["name"]
+                value = item.data.get(field_name, "")
+                if value:
+                    display_parts.append(str(value))
+            
+            display_text = " | ".join(display_parts) if display_parts else f"Item {item.id}"
+            listbox.insert(tk.END, display_text)
+            
+    except Exception as e:
+        print(f"Error refreshing listbox: {e}")
+        listbox.insert(tk.END, "Error loading items")
 
 
 def add_item(listbox):
@@ -538,10 +547,15 @@ def on_item_select(event, listbox):
 
 def run_gui():
     """Initialize and run the flexible inventory GUI."""
-    global field_entries
+    global field_entries, database, inventory
     
     # Initialize inventory setup
     initialize_inventory_setup()
+    
+    # Initialize default database
+    database = Database()
+    inventory = Inventory()
+    load_inventory_from_database()
     
     root = tk.Tk()
     root.title("Flexible Inventory Management")
