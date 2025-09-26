@@ -85,7 +85,12 @@ def load_inventory_from_database():
             
             item = Item(**item_dict)
             inventory.add_item(item)
-            print(f"Loaded item: {item.data.get('name', 'Unknown')} (ID: {item.id})")
+            # Get the appropriate display name based on inventory type
+            display_name = (item.data.get('name') or 
+                          item.data.get('title') or 
+                          item.data.get('model') or 
+                          f"Item {item.id[:8]}")
+            print(f"Loaded item: {display_name} (ID: {item.id})")
         except Exception as e:
             print(f"Error loading item: {e}")
             print(f"Item data was: {item_data}")
@@ -140,7 +145,12 @@ def refresh_listbox(table):
             values.append(str(value))
         
         table.insert('', 'end', values=values)
-        print(f"Added to table [{i}]: {item.data.get('name', 'Unknown')}")
+        # Get the appropriate display name based on inventory type
+        display_name = (item.data.get('name') or 
+                       item.data.get('title') or 
+                       item.data.get('model') or 
+                       f"Item {item.id[:8] if hasattr(item, 'id') else i}")
+        print(f"Added to table [{i}]: {display_name}")
     
     print(f"Table now has {len(items)} items")
 
@@ -731,35 +741,173 @@ def import_datasheet(listbox):
     except Exception as e:
         messagebox.showerror("Import Error", f"Error importing file: {str(e)}")
 
+def view_database_tables():
+    """Show database tables and their structure."""
+    global database
+    
+    if not database:
+        messagebox.showwarning("Database", "No database is currently loaded.")
+        return
+    
+    try:
+        # Create a new window to show database info
+        db_window = tk.Toplevel()
+        db_window.title("Database Structure")
+        db_window.geometry("800x600")
+        db_window.configure(bg="#F0F0F0")
+        
+        # Create notebook for tabs
+        notebook = ttk.Notebook(db_window)
+        notebook.pack(expand=True, fill='both', padx=10, pady=10)
+        
+        # Tab 1: Tables Overview
+        tables_frame = ttk.Frame(notebook)
+        notebook.add(tables_frame, text="Tables")
+        
+        # Get tables from database
+        cursor = database.conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        
+        ttk.Label(tables_frame, text="Database Tables", font=("Segoe UI", 14, "bold")).pack(pady=10)
+        
+        # Create treeview for tables
+        tables_tree = ttk.Treeview(tables_frame, columns=('Table Name', 'Type'), show='headings', height=10)
+        tables_tree.heading('#1', text='Table Name')
+        tables_tree.heading('#2', text='Type')
+        tables_tree.column('#1', width=200)
+        tables_tree.column('#2', width=100)
+        
+        for table in tables:
+            tables_tree.insert('', 'end', values=(table[0], 'Table'))
+        
+        tables_tree.pack(expand=True, fill='both', padx=10, pady=10)
+        
+        # Tab 2: Current Table Structure
+        structure_frame = ttk.Frame(notebook)
+        notebook.add(structure_frame, text="Current Table Schema")
+        
+        ttk.Label(structure_frame, text="Current Inventory Table Schema", font=("Segoe UI", 14, "bold")).pack(pady=10)
+        
+        # Get current table structure
+        cursor.execute("PRAGMA table_info(inventory_items);")
+        columns = cursor.fetchall()
+        
+        # Create treeview for column info
+        cols_tree = ttk.Treeview(structure_frame, columns=('Column', 'Type', 'Required', 'Key'), show='headings', height=15)
+        cols_tree.heading('#1', text='Column Name')
+        cols_tree.heading('#2', text='Data Type')
+        cols_tree.heading('#3', text='Required')
+        cols_tree.heading('#4', text='Primary Key')
+        
+        for col in columns:
+            cols_tree.insert('', 'end', values=(
+                col[1],  # name
+                col[2],  # type
+                'Yes' if col[3] else 'No',  # not null
+                'Yes' if col[5] else 'No'   # primary key
+            ))
+        
+        cols_tree.pack(expand=True, fill='both', padx=10, pady=10)
+        
+        # Tab 3: Data Sample
+        data_frame = ttk.Frame(notebook)
+        notebook.add(data_frame, text="Sample Data")
+        
+        ttk.Label(data_frame, text="Sample Records", font=("Segoe UI", 14, "bold")).pack(pady=10)
+        
+        # Get sample data
+        cursor.execute("SELECT * FROM inventory_items LIMIT 5;")
+        sample_data = cursor.fetchall()
+        
+        if sample_data:
+            # Get column names
+            cursor.execute("PRAGMA table_info(inventory_items);")
+            column_info = cursor.fetchall()
+            column_names = [col[1] for col in column_info]
+            
+            # Create treeview for sample data
+            data_tree = ttk.Treeview(data_frame, columns=column_names, show='headings', height=8)
+            
+            for col in column_names:
+                data_tree.heading(col, text=col)
+                data_tree.column(col, width=100)
+            
+            for row in sample_data:
+                data_tree.insert('', 'end', values=row)
+            
+            data_tree.pack(expand=True, fill='both', padx=10, pady=10)
+            
+            # Add scrollbars
+            v_scroll = ttk.Scrollbar(data_frame, orient="vertical", command=data_tree.yview)
+            v_scroll.pack(side="right", fill="y")
+            data_tree.config(yscrollcommand=v_scroll.set)
+            
+            h_scroll = ttk.Scrollbar(data_frame, orient="horizontal", command=data_tree.xview)
+            h_scroll.pack(side="bottom", fill="x")
+            data_tree.config(xscrollcommand=h_scroll.set)
+        else:
+            ttk.Label(data_frame, text="No sample data available").pack(pady=20)
+        
+        # Add close button
+        ttk.Button(db_window, text="Close", command=db_window.destroy).pack(pady=10)
+        
+    except Exception as e:
+        messagebox.showerror("Database Error", f"Error viewing database structure: {str(e)}")
+
 def refresh_ui_after_type_change(new_type):
     """Refresh both the table and input fields after inventory type change."""
     global field_entries, listbox, input_frame
     
-    # Recreate input fields based on new type
-    if 'input_frame' in globals() and input_frame:
-        create_input_fields(input_frame)
+    print(f"Refreshing UI for inventory type change to: {new_type.value}")
     
-    # Recreate table columns based on new type
-    if 'listbox' in globals() and listbox:
-        # Get new fields configuration
-        fields = get_inventory_fields()
+    try:
+        # Recreate input fields based on new type  
+        if 'input_frame' in globals() and input_frame:
+            print("Updating input fields...")
+            create_input_fields(input_frame)
         
-        # Reconfigure table columns
-        new_columns = ['#'] + [field['name'].title() for field in fields]
-        listbox['columns'] = new_columns
+        # Recreate table columns based on new type
+        if 'listbox' in globals() and listbox:
+            print("Updating table columns...")
+            # Get new fields configuration
+            fields = get_inventory_fields()
+            print(f"New fields: {[f['name'] for f in fields]}")
+            
+            # Clear existing items first
+            for item in listbox.get_children():
+                listbox.delete(item)
+            
+            # Reconfigure table columns
+            new_columns = ['#'] + [field['name'].title() for field in fields]
+            listbox['columns'] = new_columns
+            
+            # Reconfigure column headings and widths
+            listbox.heading('#1', text='#')
+            listbox.column('#1', width=40, anchor='center')
+            
+            for i, field in enumerate(fields, 1):
+                col_name = field['name'].replace('_', ' ').title()
+                listbox.heading(f'#{i+1}', text=col_name)
+                width = max(100, len(col_name) * 10 + 20)
+                listbox.column(f'#{i+1}', width=width, anchor='w')
+            
+            print("Reloading data from database with new schema...")
+            # Reload data from database with new field schema
+            load_inventory_from_database()
+            
+            # Refresh table data
+            print("Refreshing table display...")
+            refresh_listbox(listbox)
+            
+            # Force UI update
+            listbox.update_idletasks()
+            
+        print("UI refresh complete!")
         
-        # Reconfigure column headings and widths
-        listbox.heading('#1', text='#')
-        listbox.column('#1', width=40, anchor='center')
-        
-        for i, field in enumerate(fields, 1):
-            col_name = field['name'].replace('_', ' ').title()
-            listbox.heading(f'#{i+1}', text=col_name)
-            width = max(100, len(col_name) * 10 + 20)
-            listbox.column(f'#{i+1}', width=width, anchor='w')
-        
-        # Refresh table data
-        refresh_listbox(listbox)
+    except Exception as e:
+        print(f"Error during UI refresh: {e}")
+        messagebox.showerror("UI Error", f"Error refreshing interface: {str(e)}")
 
 def change_inventory_type():
     """Allow user to change inventory type."""
@@ -907,6 +1055,8 @@ def run_gui():
     tools_menu = tk.Menu(menubar, tearoff=0)
     menubar.add_cascade(label="Tools", menu=tools_menu)
     tools_menu.add_command(label="Change Inventory Type...", command=change_inventory_type)
+    tools_menu.add_separator()
+    tools_menu.add_command(label="View Database Tables...", command=view_database_tables)
     tools_menu.add_separator()
     tools_menu.add_command(label="Clear All Data...", command=lambda: clear_all_data(listbox))
     tools_menu.add_command(label="Reset to Default...", command=lambda: reset_to_default(listbox))
