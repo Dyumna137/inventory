@@ -1,14 +1,20 @@
 # Flexible Inventory Management System
-# Minimal dependencies for a clean, professional project
+# Zero dependencies - uses only Python standard library!
 
-# GUI (tkinter is included with Python - no external dependencies needed)
-# Database (sqlite3 is included with Python - no external dependencies needed)
+# Core functionality (all included with Python):
+# - GUI: tkinter 
+# - Database: sqlite3
+# - CSV/TXT import: csv module
+# - JSON config: json module
 
-# Optional: For future enhancements
-# pandas>=1.5.0          # For data import/export features
-# openpyxl>=3.0.10       # For Excel file support
-# sqlalchemy>=1.4.0      # For advanced database features
+# Optional Excel support (install only if you need Excel import):
+# openpyxl>=3.0.10       # For .xlsx files
+# xlrd>=2.0.1            # For .xls files
 
-# Development tools (optional)
+# Optional development tools:
 # pytest>=7.0.0          # For testing
 # black>=22.0.0          # For code formatting
+
+# This project demonstrates professional Python development
+# with minimal dependencies - everything works out of the box!
+# No external dependencies are required for basic functionality
