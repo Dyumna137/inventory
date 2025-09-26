@@ -1,7 +1,14 @@
-xlrd
-pandas
-sqlalchemy
-pdfplumber
-pytesseract
-Pillow
-openpyxl
+# Flexible Inventory Management System
+# Minimal dependencies for a clean, professional project
+
+# GUI (tkinter is included with Python - no external dependencies needed)
+# Database (sqlite3 is included with Python - no external dependencies needed)
+
+# Optional: For future enhancements
+# pandas>=1.5.0          # For data import/export features
+# openpyxl>=3.0.10       # For Excel file support
+# sqlalchemy>=1.4.0      # For advanced database features
+
+# Development tools (optional)
+# pytest>=7.0.0          # For testing
+# black>=22.0.0          # For code formatting
