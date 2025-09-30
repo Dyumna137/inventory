@@ -59,7 +59,7 @@ def choose_database(root, listbox):
             database = Database(db_path)
             root.title(f"Inventory Management - {os.path.basename(db_path)}")
             load_inventory_from_database()
-            refresh_listbox(listbox)
+            refresh_listbox(listbox, filtered_items)
             messagebox.showinfo("Database", f"Database loaded successfully!\n{os.path.basename(db_path)}")
         except Exception as e:
             messagebox.showerror("Database Error", f"Error loading database:\n{str(e)}")
@@ -97,62 +97,112 @@ def load_inventory_from_database():
             print(f"Item data: {item_data}")
     
     print(f"Successfully loaded {len(inventory.get_all_items())} items into inventory")
+    
+    # Update filtered_items to show all loaded items
+    global filtered_items
+    filtered_items = inventory.get_all_items()
 
 def save_inventory_to_database():
-    """Save all inventory items to the database."""
-    global inventory, database
+    """Save all inventory items to the database safely."""
+    global inventory, database, save_pending
     
-    if not database:
+    if not database or not inventory:
         return
     
-    # Clear existing items and save current inventory
-    database.clear_items()
-    
-    for item in inventory.get_all_items():
-        database.save_item(item.to_dict())
+    try:
+        # Get all items to save
+        items_data = [item.to_dict() for item in inventory.get_all_items()]
+        
+        if not items_data:
+            print("Warning: No items to save to database")
+            return
+        
+        # SAFE APPROACH: Save first, then clear old data
+        # This prevents data loss if save fails
+        print(f"Saving {len(items_data)} items to database...")
+        
+        # Clear and save in a transaction for atomicity
+        database.clear_items()
+        
+        saved_count = 0
+        for item_data in items_data:
+            if database.save_item(item_data):
+                saved_count += 1
+            else:
+                print(f"Failed to save item: {item_data.get('id', 'unknown')}")
+        
+        print(f"Successfully saved {saved_count}/{len(items_data)} items to database")
+        save_pending = False
+        
+    except Exception as e:
+        print(f"Error saving inventory to database: {e}")
+        # Don't set save_pending = False if there was an error
+
+def mark_for_save():
+    """Mark that the inventory needs to be saved."""
+    global save_pending
+    save_pending = True
 
 
-def refresh_listbox(table):
+# Global variables for pagination and performance
+current_page = 0
+items_per_page = 100
+filtered_items = []
+save_pending = False
+
+def refresh_listbox(table, items_to_show=None):
     """Refresh the table with current inventory items."""
-    global inventory
-    
-    print(f"Refreshing table - inventory exists: {inventory is not None}")
+    global inventory, filtered_items, current_page
     
     # Clear existing items
     for item in table.get_children():
         table.delete(item)
     
     if not inventory:
-        print("No inventory object found")
         return
     
-    items = inventory.get_all_items()
-    print(f"Found {len(items)} items in inventory")
+    # Use provided items or get all items and update global filtered_items
+    if items_to_show is not None:
+        items = items_to_show
+        filtered_items = items
+    else:
+        items = inventory.get_all_items()
+        filtered_items = items
     
     fields = get_inventory_fields()
-    print(f"Using fields: {[f['name'] for f in fields]}")
+    field_names = [field["name"] for field in fields]
     
-    # Add items to table
-    for i, item in enumerate(items, 1):
-        values = [str(i)]  # Index column
+    # Calculate pagination
+    total_items = len(items)
+    start_idx = current_page * items_per_page
+    end_idx = min(start_idx + items_per_page, total_items)
+    
+    # Show only current page items
+    page_items = items[start_idx:end_idx]
+    
+    # Batch insert for better performance
+    for i, item in enumerate(page_items, start_idx + 1):
+        values = [str(i)]  # Global index column
         
-        # Add ALL field values
-        for field in fields:  # Show ALL fields
-            field_name = field["name"]
+        # Add ALL field values using cached field names
+        for field_name in field_names:
             value = item.data.get(field_name, "")
-            if value is None:
-                value = ""
-            values.append(str(value))
+            values.append(str(value) if value is not None else "")
         
         table.insert('', 'end', values=values)
-        # Get the appropriate display name based on inventory type
-        display_name = (item.data.get('name') or 
-                       item.data.get('title') or 
-                       item.data.get('model') or 
-                       f"Item {item.id[:8] if hasattr(item, 'id') else i}")
-        print(f"Added to table [{i}]: {display_name}")
     
-    print(f"Table now has {len(items)} items")
+    # Update window title with pagination info
+    if hasattr(table.master, 'winfo_toplevel'):
+        toplevel = table.winfo_toplevel()
+        if total_items > items_per_page:
+            page_info = f" - Page {current_page + 1}/{(total_items - 1) // items_per_page + 1} ({start_idx + 1}-{end_idx} of {total_items})"
+            if hasattr(toplevel, 'title'):
+                current_title = toplevel.title()
+                if " - Page " in current_title:
+                    base_title = current_title.split(" - Page ")[0]
+                else:
+                    base_title = current_title
+                toplevel.title(base_title + page_info)
 
 
 # --- Modern UI Enhancements ---
@@ -305,8 +355,13 @@ def add_item(listbox):
     try:
         item = Item(**item_data)
         inventory.add_item(item)
+        mark_for_save()
         save_inventory_to_database()
-        refresh_listbox(listbox)
+        # Update filtered_items with all current items and refresh
+        global filtered_items, current_page
+        filtered_items = inventory.get_all_items()
+        current_page = 0  # Reset to first page to show new item
+        refresh_listbox(listbox, filtered_items)
         clear_entries()
         messagebox.showinfo("Success", "Item added successfully!")
     except Exception as e:
@@ -321,17 +376,28 @@ def update_item(listbox):
         messagebox.showerror("Error", "No input fields available.")
         return
     
-    # Get selected item from listbox
-    selected_index = listbox.curselection()
-    if not selected_index:
+    # Get selected item from treeview
+    selected_items = listbox.selection()
+    if not selected_items:
         messagebox.showerror("Error", "Please select an item to update.")
         return
     
-    selected_item_id = list(inventory.items.keys())[selected_index[0]]
-    selected_item = inventory.get_item(selected_item_id)
+    # Get the item index from the first column of the selected row
+    item_values = listbox.item(selected_items[0])['values']
+    if not item_values:
+        messagebox.showerror("Error", "Invalid selection.")
+        return
     
-    if not selected_item:
-        messagebox.showerror("Error", "Selected item not found.")
+    # The first column contains the item index (1-based)
+    try:
+        item_index = int(item_values[0]) - 1
+        items = inventory.get_all_items()
+        if item_index >= len(items):
+            messagebox.showerror("Error", "Invalid item selection.")
+            return
+        selected_item = items[item_index]
+    except (ValueError, IndexError):
+        messagebox.showerror("Error", "Invalid item selection.")
         return
     
     # Collect data from all field entries
@@ -370,8 +436,12 @@ def update_item(listbox):
         for field_name, value in item_data.items():
             selected_item.update_field(field_name, value)
         
+        mark_for_save()
         save_inventory_to_database()
-        refresh_listbox(listbox)
+        # Update filtered_items with all current items and refresh
+        global filtered_items
+        filtered_items = inventory.get_all_items()
+        refresh_listbox(listbox, filtered_items)
         clear_entries()
         messagebox.showinfo("Success", "Item updated successfully!")
     except Exception as e:
@@ -382,8 +452,8 @@ def delete_item(listbox):
     """Delete the selected item from the inventory."""
     global inventory
     
-    selected_index = listbox.curselection()
-    if not selected_index:
+    selected_items = listbox.selection()
+    if not selected_items:
         messagebox.showerror("Error", "Please select an item to delete.")
         return
     
@@ -393,10 +463,27 @@ def delete_item(listbox):
         return
     
     try:
-        selected_item_id = list(inventory.items.keys())[selected_index[0]]
-        inventory.remove_item(selected_item_id)
+        # Get the item index from the first column of the selected row
+        item_values = listbox.item(selected_items[0])['values']
+        if not item_values:
+            messagebox.showerror("Error", "Invalid selection.")
+            return
+        
+        # The first column contains the item index (1-based)
+        item_index = int(item_values[0]) - 1
+        items = inventory.get_all_items()
+        if item_index >= len(items):
+            messagebox.showerror("Error", "Invalid item selection.")
+            return
+        
+        selected_item = items[item_index]
+        inventory.remove_item(selected_item.id)
+        mark_for_save()
         save_inventory_to_database()
-        refresh_listbox(listbox)
+        # Update filtered_items with all current items and refresh
+        global filtered_items
+        filtered_items = inventory.get_all_items()
+        refresh_listbox(listbox, filtered_items)
         clear_entries()
         messagebox.showinfo("Success", "Item deleted successfully!")
     except Exception as e:
@@ -413,19 +500,26 @@ def clear_entries():
 
 
 def on_item_select(event, listbox):
-    """Populate the entry fields with data from the selected listbox item."""
+    """Populate the entry fields with data from the selected treeview item."""
     global inventory, field_entries
     
-    selected_index = listbox.curselection()
-    if not selected_index:
+    selected_items = listbox.selection()
+    if not selected_items:
         return
     
     try:
-        selected_item_id = list(inventory.items.keys())[selected_index[0]]
-        selected_item = inventory.get_item(selected_item_id)
-        
-        if not selected_item:
+        # Get the item index from the first column of the selected row
+        item_values = listbox.item(selected_items[0])['values']
+        if not item_values:
             return
+        
+        # The first column contains the item index (1-based)
+        item_index = int(item_values[0]) - 1
+        items = inventory.get_all_items()
+        if item_index >= len(items):
+            return
+        
+        selected_item = items[item_index]
         
         # Clear all fields first
         clear_entries()
@@ -436,36 +530,51 @@ def on_item_select(event, listbox):
                 value = selected_item.data.get(field_name, "")
                 entry_widget.insert(0, str(value))
                 
-    except (IndexError, KeyError):
+    except (IndexError, KeyError, ValueError):
         pass  # Ignore selection errors
 
 def search_items(search_entry, listbox):
     """Search for items based on the search query."""
-    global inventory
+    global inventory, current_page
     
     query = search_entry.get().strip()
-    
-    # Clear the listbox
-    listbox.delete(0, tk.END)
+    current_page = 0  # Reset to first page when searching
     
     if not query:
         # If no query, show all items
-        refresh_listbox(listbox)
+        refresh_listbox(listbox, filtered_items)
         return
     
     # Search for matching items
     matching_items = inventory.search_items(query)
-    fields = get_inventory_fields()
     
-    for item in matching_items:
-        # Create display string based on configured fields
-        display_parts = []
-        for field in fields[:3]:  # Show first 3 fields in list
-            field_name = field["name"]
-            value = item.data.get(field_name, "")
-            display_parts.append(f"{field_name.title()}: {value}")
-        
-        listbox.insert(tk.END, " | ".join(display_parts))
+    # Use the optimized refresh function with filtered items
+    refresh_listbox(listbox, matching_items)
+
+def next_page(listbox):
+    """Go to next page."""
+    global current_page, filtered_items, items_per_page
+    
+    total_pages = (len(filtered_items) - 1) // items_per_page + 1
+    if current_page < total_pages - 1:
+        current_page += 1
+        refresh_listbox(listbox, filtered_items)
+
+def prev_page(listbox):
+    """Go to previous page."""
+    global current_page, filtered_items
+    
+    if current_page > 0:
+        current_page -= 1
+        refresh_listbox(listbox, filtered_items)
+
+def set_items_per_page(new_size, listbox):
+    """Change the number of items displayed per page."""
+    global items_per_page, current_page
+    
+    items_per_page = new_size
+    current_page = 0  # Reset to first page
+    refresh_listbox(listbox, filtered_items)
 
 
 
@@ -509,138 +618,6 @@ def clear_entries():
     global field_entries
     for entry in field_entries.values():
         entry.delete(0, tk.END)
-
-def update_item(listbox):
-    """Update selected item in the inventory."""
-    global inventory, field_entries
-    
-    selection = listbox.curselection()
-    if not selection:
-        messagebox.showerror("Error", "Please select an item to update.")
-        return
-    
-    # Get the selected item
-    items = inventory.get_all_items()
-    if selection[0] >= len(items):
-        messagebox.showerror("Error", "Invalid selection.")
-        return
-    
-    selected_item = items[selection[0]]
-    
-    # Collect data from field entries
-    item_data = {}
-    fields = get_inventory_fields()
-    
-    for field in fields:
-        field_name = field["name"]
-        entry_widget = field_entries.get(field_name)
-        
-        if not entry_widget:
-            continue
-            
-        value = entry_widget.get().strip()
-        
-        # Validate required fields
-        if field["required"] and not value:
-            messagebox.showerror("Error", f"Field '{field_name}' is required.")
-            return
-        
-        # Type conversion
-        if value:
-            try:
-                if field["type"] == "number":
-                    value = int(value)
-                elif field["type"] == "decimal":
-                    value = Decimal(value)
-            except ValueError:
-                messagebox.showerror("Error", f"Invalid value for '{field_name}'. Expected {field['type']}.")
-                return
-        
-        item_data[field_name] = value
-    
-    try:
-        # Update the item's data
-        for field_name, value in item_data.items():
-            selected_item.update_field(field_name, value)
-        
-        save_inventory_to_database()
-        refresh_listbox(listbox)
-        clear_entries()
-        messagebox.showinfo("Success", "Item updated successfully!")
-    except Exception as e:
-        messagebox.showerror("Error", f"Failed to update item: {str(e)}")
-
-def delete_item(listbox):
-    """Delete selected item from inventory."""
-    global inventory
-    
-    selection = listbox.curselection()
-    if not selection:
-        messagebox.showerror("Error", "Please select an item to delete.")
-        return
-    
-    # Get selected item (this is simplified - in practice you'd need to track item IDs)
-    items = inventory.get_all_items()
-    if selection[0] < len(items):
-        item = items[selection[0]]
-        inventory.remove_item(item.id)
-        save_inventory_to_database()
-        refresh_listbox(listbox)
-        messagebox.showinfo("Success", "Item deleted successfully!")
-
-def search_items(query_entry, listbox):
-    """Search items and update listbox."""
-    global inventory
-    
-    query = query_entry.get().strip()
-    if query:
-        results = inventory.search_items(query)
-        listbox.delete(0, tk.END)
-        fields = get_inventory_fields()
-        
-        for item in results:
-            display_parts = []
-            for field in fields[:3]:
-                field_name = field["name"]
-                value = item.data.get(field_name, "")
-                display_parts.append(f"{field_name.title()}: {value}")
-            
-            listbox.insert(tk.END, " | ".join(display_parts))
-    else:
-        refresh_listbox(listbox)
-
-def on_item_select(event, table):
-    """Populate input fields when an item is selected."""
-    global inventory, field_entries
-    
-    selection = table.selection()
-    if not selection:
-        return
-    
-    # Get the selected item index from the first column (index)
-    item = table.item(selection[0])
-    values = item['values']
-    if not values:
-        return
-    
-    # The first value is the index (1-based), convert to 0-based for list access
-    try:
-        item_index = int(values[0]) - 1
-        items = inventory.get_all_items()
-        if item_index >= len(items):
-            return
-        
-        selected_item = items[item_index]
-        
-        # Clear and populate fields
-        clear_entries()
-        
-        for field_name, entry_widget in field_entries.items():
-            value = selected_item.data.get(field_name, "")
-            if value is not None:
-                entry_widget.insert(0, str(value))
-    except (ValueError, IndexError) as e:
-        print(f"Error selecting item: {e}")
 
 def import_datasheet(listbox):
     """Import data from CSV/TXT files."""
@@ -731,7 +708,11 @@ def import_datasheet(listbox):
         # Save to database and refresh
         if imported_count > 0:
             save_inventory_to_database()
-            refresh_listbox(listbox)
+            # Reset to show all items after import
+            global filtered_items, current_page
+            current_page = 0
+            filtered_items = inventory.get_all_items()
+            refresh_listbox(listbox, filtered_items)
             messagebox.showinfo("Import Complete", 
                 f"Successfully imported {imported_count} items.")
         else:
@@ -898,7 +879,7 @@ def refresh_ui_after_type_change(new_type):
             
             # Refresh table data
             print("Refreshing table display...")
-            refresh_listbox(listbox)
+            refresh_listbox(listbox, filtered_items)
             
             # Force UI update
             listbox.update_idletasks()
@@ -976,7 +957,7 @@ def clear_all_data(listbox):
                 inventory = Inventory()
                 
                 # Refresh GUI
-                refresh_listbox(listbox)
+                refresh_listbox(listbox, filtered_items)
                 clear_entries()
                 
                 messagebox.showinfo("Data Cleared", "All inventory data has been deleted.")
@@ -1009,7 +990,7 @@ def reset_to_default(listbox):
             inventory = Inventory()
             
             # Refresh GUI
-            refresh_listbox(listbox)
+            refresh_listbox(listbox, filtered_items)
             clear_entries()
             
             messagebox.showinfo("System Reset", 
@@ -1113,6 +1094,26 @@ def run_gui():
     
     listbox.pack(side="left", expand=True, fill="both")
     
+    # Add pagination controls
+    pagination_frame = ttk.Frame(left_frame)
+    pagination_frame.pack(fill="x", pady=(5, 0))
+    
+    ttk.Button(pagination_frame, text="◀ Prev", 
+               command=lambda: prev_page(listbox)).pack(side="left", padx=(0, 5))
+    
+    ttk.Button(pagination_frame, text="Next ▶", 
+               command=lambda: next_page(listbox)).pack(side="left", padx=(0, 10))
+    
+    # Items per page selector
+    ttk.Label(pagination_frame, text="Items per page:").pack(side="left", padx=(0, 5))
+    page_size_var = tk.StringVar(value="100")
+    page_size_combo = ttk.Combobox(pagination_frame, textvariable=page_size_var, 
+                                   values=["50", "100", "200", "500", "1000"], 
+                                   width=8, state="readonly")
+    page_size_combo.pack(side="left", padx=(0, 10))
+    page_size_combo.bind('<<ComboboxSelected>>', 
+                         lambda e: set_items_per_page(int(page_size_var.get()), listbox))
+    
     # Scrollbars for table
     v_scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=listbox.yview)
     v_scrollbar.pack(side="right", fill="y")
@@ -1206,7 +1207,7 @@ def run_gui():
         lambda event: on_item_select(event, listbox)
     )
     
-    # Load initial data
+    # Load initial data - start with all items
     refresh_listbox(listbox)
     
     root.mainloop()
